@@ -14,6 +14,7 @@ import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
+import Parser from 'rss-parser';
 
 class AppUpdater {
   constructor() {
@@ -123,7 +124,17 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+const testRss = async () => {
+  let parser = new Parser();
+  let feed = await parser.parseURL(
+    'http://43.128.7.84:1200/bilibili/user/article/13297724'
+  );
+  console.log(feed.title);
 
+  feed.items.forEach((item) => {
+    console.log(item.title + ':' + item.link);
+  });
+};
 app
   .whenReady()
   .then(() => {
@@ -133,5 +144,6 @@ app
       // dock icon is clicked and there are no other windows open.
       if (mainWindow === null) createWindow();
     });
+    testRss();
   })
   .catch(console.log);
