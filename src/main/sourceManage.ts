@@ -2,6 +2,10 @@
  * 管理订阅源相关
  * 新增或删除订阅源。并且负责持久化到存储中
  */
+import { OpmlOutline, OpmlObject } from "./opmlUtil";
+import { readOpmlFromFile, dumpOpmlToFile } from "./opmlUtil";
+
+const DEFAULT_FOLDER = "__rss_client_default__";
 
 class Source {
   url: string;
@@ -36,6 +40,7 @@ class Folder {
     } else {
       source = value;
     }
+    source.folder = this.name;
     this.sourceArray.push(source);
   }
 
@@ -68,7 +73,13 @@ class SourceManage {
   folderMap: Record<string, Folder | null> = {};
 
   constructor() {
-    this.folderMap["default"] = new Folder("default");
+    this.init();
+  }
+
+  init() {
+    this.folderMap = {
+      [DEFAULT_FOLDER]: new Folder(DEFAULT_FOLDER)
+    };
   }
 
   addFolder(folder: Folder): void;
@@ -85,6 +96,10 @@ class SourceManage {
     return this.folderMap[name];
   }
 
+  getDefaultFolder(): Folder {
+    return this.folderMap[DEFAULT_FOLDER]!;
+  }
+
   deleteFolder(name: string): void;
   deleteFolder(folder: Folder): void;
   deleteFolder(value: string | Folder): void {
@@ -98,9 +113,65 @@ class SourceManage {
     }
   }
 
-  loadFromFile(filename: string) {
+  dump(): OpmlObject {
+    const opmlObject = new OpmlObject();
+    opmlObject.title = "feedOpml";
+    Object.keys(this.folderMap).forEach(folderName => {
+      const sourceArray = this.folderMap[folderName]!.sourceArray;
+      const outline = new OpmlOutline();
+      if (folderName !== DEFAULT_FOLDER) {
+        outline.text = folderName;
+        outline.title = folderName;
+        sourceArray.forEach(item => {
+          const subOutline = new OpmlOutline(item.name, item.name, [], "rss", item.url, item.url);
+          outline.addOutline(subOutline);
+        });
+        opmlObject.addOutline(outline);
+      } else {
+        sourceArray.forEach(item => {
+          const subOutline = new OpmlOutline(item.name, item.name, [], "rss", item.url, item.url);
+          opmlObject.addOutline(subOutline);
+        });
+      }
+    });
+    return opmlObject;
   }
 
-  saveToFile(filename: string) {
+  convertOutlineToSource(outline: OpmlOutline, folder?: Folder): Source {
+    const url = outline.getUrl();
+    const name = outline.getName();
+    const source = new Source(url, name);
+    if (folder) {
+      source.folder = folder.name;
+    }
+    return source;
+  }
+
+  load(opmlObject: OpmlObject) {
+    this.init();
+    const outlines = opmlObject.outline;
+    outlines.forEach(item => {
+      if (item.type === "rss") {
+        // 根目录的rss节点直接挂载默认目录里面
+        const source = this.convertOutlineToSource(item, this.folderMap[DEFAULT_FOLDER]!);
+        this.folderMap[DEFAULT_FOLDER]!.sourceArray.push(source);
+      } else {
+        this.folderMap[item.getName()] = new Folder(item.getName());
+        item.subOutlines.forEach(subItem => {
+          const source = this.convertOutlineToSource(subItem, this.folderMap[item.getName()]!);
+          this.folderMap[item.getName()]!.sourceArray.push(source);
+        });
+      }
+    });
+  }
+
+  async loadFromFile(filename: string) {
+    const opmlObject = await readOpmlFromFile(filename);
+    this.load(opmlObject);
+  }
+
+  async saveToFile(filename: string) {
+    const opmlObject = this.dump();
+    await dumpOpmlToFile(opmlObject, filename);
   }
 }
